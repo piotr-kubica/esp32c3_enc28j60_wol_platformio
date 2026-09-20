@@ -30,6 +30,7 @@ IPAddress z97Ip(192, 168, 50, 20);
 IPAddress subnet(255, 255, 255, 0);
 
 EthernetUDP udp;
+unsigned long lastHeartbeatMs = 0;
 
 void sendWakeOnLan()
 {
@@ -86,11 +87,28 @@ void setup()
 
 void loop()
 {
-    if (Serial.available()) {
-        char c = Serial.read();
+    // Show periodic activity in case startup lines were missed.
+    if (millis() - lastHeartbeatMs >= 3000) {
+        lastHeartbeatMs = millis();
+        Serial.println("Alive: waiting for command ('w').");
+    }
+
+    while (Serial.available() > 0) {
+        char c = static_cast<char>(Serial.read());
+
+        // Ignore line endings/spaces some terminals send with Enter.
+        if (c == '\r' || c == '\n' || c == ' ' || c == '\t') {
+            continue;
+        }
+
+        Serial.print("RX: '");
+        Serial.print(c);
+        Serial.println("'");
 
         if (c == 'w' || c == 'W') {
             sendWakeOnLan();
+        } else {
+            Serial.println("Unknown command. Use 'w' to send WoL.");
         }
     }
 
