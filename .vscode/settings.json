@@ -1,0 +1,5 @@
+{
+  "terminal.integrated.env.windows": {
+    "PATH": "C:\\Users\\piotr\\.platformio\\penv\\Scripts;${env:PATH}"
+  }
+}
