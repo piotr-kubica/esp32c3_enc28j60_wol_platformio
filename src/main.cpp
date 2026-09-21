@@ -10,6 +10,9 @@
 #define ETH_MOSI  6
 #define ETH_CS    7
 
+// BOOT button on ESP32-C3-DevKitM-1 is GPIO9. This button is active LOW.
+#define BUTTON_PIN 9
+
 // Target Z97 Ethernet MAC.
 // TODO: Replace with the MAC address of your server.
 byte targetMac[] = {
@@ -31,6 +34,10 @@ IPAddress subnet(255, 255, 255, 0);
 
 EthernetUDP udp;
 unsigned long lastHeartbeatMs = 0;
+const unsigned long buttonDebounceMs = 40;
+bool buttonStableState = HIGH;
+bool buttonLastReading = HIGH;
+unsigned long buttonLastChangeMs = 0;
 
 void sendWakeOnLan()
 {
@@ -80,9 +87,13 @@ void setup()
 
     udp.begin(9);
 
+    pinMode(BUTTON_PIN, INPUT_PULLUP);
+
     Serial.println();
     Serial.println("Ready.");
     Serial.println("Send 'w' over Serial Monitor to send WoL.");
+    Serial.print("Button pin: ");
+    Serial.println(BUTTON_PIN);
 }
 
 void loop()
@@ -90,7 +101,25 @@ void loop()
     // Show periodic activity in case startup lines were missed.
     if (millis() - lastHeartbeatMs >= 3000) {
         lastHeartbeatMs = millis();
-        Serial.println("Alive: waiting for command ('w').");
+        Serial.println("Alive: waiting for command ('w') or button press.");
+    }
+
+    // Debounce the button and trigger once when a stable press is detected.
+    bool buttonReading = (digitalRead(BUTTON_PIN) == LOW) ? LOW : HIGH;
+
+    if (buttonReading != buttonLastReading) {
+        buttonLastChangeMs = millis();
+        buttonLastReading = buttonReading;
+    }
+
+    if ((millis() - buttonLastChangeMs) >= buttonDebounceMs &&
+        buttonReading != buttonStableState) {
+        buttonStableState = buttonReading;
+
+        if (buttonStableState == LOW) {
+            Serial.println("Button pressed: sending Wake-on-LAN packet...");
+            sendWakeOnLan();
+        }
     }
 
     while (Serial.available() > 0) {
