@@ -68,12 +68,16 @@ The exact menu wording can vary by ASUS BIOS version.
 2. Connect the ENC28J60 Ethernet port directly to the Z97 Ethernet port.
 3. Upload the project.
 4. Open PlatformIO Serial Monitor at 115200 baud.
-5. Send `w`.
-6. The ESP32 should report `WoL packet sent.`
+5. Call the HTTP endpoint:
+
+    curl -X POST "http://<esp32-wifi-ip>/switch"
+
+6. The ESP32 should report WoL frame transmission in Serial Monitor.
 7. With the Z97 shut down, verify that it powers on.
 
-This first version intentionally uses the serial monitor instead of a physical
-button, so the Ethernet/WoL path can be tested independently.
+Optional custom duration (50-1000 ms):
+
+    curl -X POST -d "duration=300" "http://<esp32-wifi-ip>/switch"
 
 ## Notes
 
@@ -82,3 +86,20 @@ the Ethernet interface.
 
 WoL depends on the Z97 Ethernet controller remaining powered in S5 and being
 configured to wake on a magic packet.
+
+## If packet is sent but PC does not wake
+
+1. Verify the target MAC in [src/main.cpp](src/main.cpp) matches the Z97 NIC exactly.
+2. In BIOS, keep `Power On By PCI-E` enabled and disable ErP/Deep Sleep modes.
+3. In the OS before shutdown:
+    - On Windows, disable Fast Startup.
+    - In NIC properties, enable `Wake on Magic Packet` and `Shutdown Wake-On-Lan`.
+4. Use a full shutdown test:
+    - Windows: `shutdown /s /t 0`
+    - Linux: `shutdown -h now`
+5. Check link LEDs on the Z97 Ethernet port while powered off.
+    If LEDs are off, the NIC is not receiving standby power, so WoL cannot work.
+6. Keep direct cable connection or use a simple unmanaged switch.
+
+This firmware sends the magic packet multiple times to both UDP ports 7 and 9,
+and to both `255.255.255.255` and `192.168.50.255` broadcast addresses.

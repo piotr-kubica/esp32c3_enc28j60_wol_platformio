@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <WiFi.h>
-#include <WebServer.h>
+#include <ESPAsyncWebServer.h>
 #include <EthernetENC.h>
 #include <EthernetUdp.h>
 
@@ -12,7 +12,7 @@
 #define ETH_MOSI  6
 #define ETH_CS    7
 
-// BOOT button on ESP32-C3-DevKitM-1 is GPIO9. This button is active LOW.
+#define LED_PIN 1
 #define BUTTON_PIN 9
 
 // Wi-Fi credentials are injected from platformio.ini / wifi_secrets.ini build flags.
@@ -47,30 +47,29 @@ IPAddress z97Ip(192, 168, 50, 20);
 IPAddress subnet(255, 255, 255, 0);
 
 EthernetUDP udp;
-WebServer httpServer(80);
+AsyncWebServer server(80);
 unsigned long lastHeartbeatMs = 0;
+int pressDurationMs = 200;
+bool ledIsOn = true;
 const unsigned long buttonDebounceMs = 40;
 bool buttonStableState = HIGH;
 bool buttonLastReading = HIGH;
 unsigned long buttonLastChangeMs = 0;
 
-void addCorsHeaders()
-{
-    httpServer.sendHeader("Access-Control-Allow-Origin", "*");
-    httpServer.sendHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
-    httpServer.sendHeader("Access-Control-Allow-Headers", "Content-Type");
-}
+IPAddress subnetBroadcast(192, 168, 50, 255);
 
-void sendJson(int statusCode, const char *body)
+void printMac(const byte *mac)
 {
-    addCorsHeaders();
-    httpServer.send(statusCode, "application/json", body);
-}
-
-void handleOptions()
-{
-    addCorsHeaders();
-    httpServer.send(204);
+    for (int i = 0; i < 6; ++i) {
+        if (i > 0) {
+            Serial.print(":");
+        }
+        if (mac[i] < 16) {
+            Serial.print("0");
+        }
+        Serial.print(mac[i], HEX);
+    }
+    Serial.println();
 }
 
 void connectWiFi()
@@ -84,22 +83,15 @@ void connectWiFi()
     WiFi.begin(wifiSsid, wifiPassword);
 
     Serial.print("Connecting to Wi-Fi");
-    unsigned long startedMs = millis();
-    while (WiFi.status() != WL_CONNECTED && (millis() - startedMs) < 20000) {
-        delay(300);
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
         Serial.print(".");
     }
-    Serial.println();
-
-    if (WiFi.status() == WL_CONNECTED) {
-        Serial.print("Wi-Fi connected. IP address: ");
-        Serial.println(WiFi.localIP());
-    } else {
-        Serial.println("Wi-Fi connection failed (timeout). API unavailable until connected.");
-    }
+    Serial.println("\nWi-Fi connected");
+    Serial.println(WiFi.localIP());
 }
 
-void sendWakeOnLan()
+int sendWakeOnLan()
 {
     uint8_t packet[102];
 
@@ -112,13 +104,46 @@ void sendWakeOnLan()
     }
 
     Serial.println("Sending Wake-on-LAN packet...");
+    Serial.print("Target MAC: ");
+    printMac(targetMac);
+    Serial.print("Ethernet link: ");
+    Serial.println(Ethernet.linkStatus() == LinkON ? "UP" : "DOWN");
 
-    // For a direct Ethernet link, send the magic packet as a broadcast.
-    udp.beginPacket(IPAddress(255, 255, 255, 255), 9);
-    udp.write(packet, sizeof(packet));
-    udp.endPacket();
+    // Some NIC/firmware combinations listen on UDP 7 or 9 and may react only
+    // to limited or subnet-directed broadcast packets. Send all combinations.
+    const IPAddress destinations[] = {
+        IPAddress(255, 255, 255, 255),
+        subnetBroadcast
+    };
+    const uint16_t ports[] = {7, 9};
 
-    Serial.println("WoL packet sent.");
+    int sentCount = 0;
+    for (int repeat = 0; repeat < 3; ++repeat) {
+        for (size_t i = 0; i < (sizeof(destinations) / sizeof(destinations[0])); ++i) {
+            for (size_t j = 0; j < (sizeof(ports) / sizeof(ports[0])); ++j) {
+                if (udp.beginPacket(destinations[i], ports[j]) == 1) {
+                    udp.write(packet, sizeof(packet));
+                    if (udp.endPacket() == 1) {
+                        ++sentCount;
+                        Serial.print("WoL frame sent to ");
+                        Serial.print(destinations[i]);
+                        Serial.print(":");
+                        Serial.println(ports[j]);
+                    } else {
+                        Serial.println("udp.endPacket() failed");
+                    }
+                } else {
+                    Serial.println("udp.beginPacket() failed");
+                }
+            }
+        }
+        delay(25);
+    }
+
+    Serial.print("WoL send sequence completed. Frames sent: ");
+    Serial.println(sentCount);
+
+    return sentCount;
 }
 
 void setup()
@@ -128,7 +153,8 @@ void setup()
     Serial.println();
     Serial.println("ESP32-C3 Wi-Fi API + ENC28J60 WoL sender");
 
-    // Initialize the button pin for input with an internal pull-up resistor.
+    pinMode(LED_PIN, OUTPUT);
+    digitalWrite(LED_PIN, LOW);
     pinMode(BUTTON_PIN, INPUT_PULLUP);
 
     SPI.begin(ETH_SCK, ETH_MISO, ETH_MOSI, ETH_CS);
@@ -140,47 +166,69 @@ void setup()
     delay(500);
     Serial.print("ESP32 IP: ");
     Serial.println(Ethernet.localIP());
+    Serial.print("Subnet broadcast: ");
+    Serial.println(subnetBroadcast);
+    Serial.print("Target MAC configured: ");
+    printMac(targetMac);
     Serial.print("Ethernet link: ");
     Serial.println(Ethernet.linkStatus() == LinkON ? "UP" : "DOWN");
     udp.begin(9);
 
     connectWiFi();
 
-    httpServer.on("/", HTTP_GET, []() {
-        sendJson(200, "{\"ok\":true,\"service\":\"wol\",\"path\":\"/wol\"}");
+    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+        request->send(200, "text/plain", "OMV-NAS ESP32 WOL API is running.");
     });
-    httpServer.on("/wol", HTTP_OPTIONS, handleOptions);
-    httpServer.on("/wol", HTTP_POST, []() {
-        Serial.println("HTTP trigger: /wol");
-        sendWakeOnLan();
-        sendJson(200, "{\"ok\":true,\"action\":\"wol\"}");
+
+    server.on("/switch", HTTP_POST, [](AsyncWebServerRequest *request) {
+        int duration = pressDurationMs;
+        if (request->hasParam("duration", true)) {
+            int arg = request->getParam("duration", true)->value().toInt();
+            if (arg >= 50 && arg <= 1000) {
+                Serial.print("Setting duration to: ");
+                Serial.print(arg);
+                Serial.println(" ms");
+                duration = arg;
+            }
+        }
+
+        ledIsOn = false;
+        delay(50);
+        digitalWrite(LED_PIN, LOW);
+
+        Serial.println("HTTP trigger: /switch -> sending Wake-on-LAN");
+        const int sentCount = sendWakeOnLan();
+
+        delay(duration);
+        ledIsOn = true;
+        digitalWrite(LED_PIN, HIGH);
+
+        String response = "{\"status\":\"wol_sent\",\"duration\":" + String(duration) +
+                          ",\"frames\":" + String(sentCount) + "}";
+        request->send(200, "application/json", response);
     });
-    httpServer.onNotFound([]() {
-        sendJson(404, "{\"ok\":false,\"error\":\"not found\"}");
+
+    server.onNotFound([](AsyncWebServerRequest *request) {
+        request->send(404, "application/json", "{\"ok\":false,\"error\":\"not found\"}");
     });
-    httpServer.begin();
+
+    server.begin();
 
     Serial.println();
     Serial.println("Ready.");
-    Serial.println("Send 'w' over Serial Monitor to send WoL.");
-    Serial.println("HTTP POST endpoint over Wi-Fi: /wol");
-    Serial.print("Button pin: ");
+    Serial.println("HTTP POST endpoint over Wi-Fi: /switch");
+    Serial.print("Button pin (INPUT_PULLUP): ");
     Serial.println(BUTTON_PIN);
 }
 
 void loop()
 {
-    // Show periodic activity in case startup lines were missed.
     if (millis() - lastHeartbeatMs >= 3000) {
         lastHeartbeatMs = millis();
-        Serial.println("Alive: waiting for command ('w') or button press.");
+        Serial.println("Alive: waiting for HTTP POST /switch");
     }
 
-    httpServer.handleClient();
-
-    // Debounce the button and trigger once when a stable press is detected.
     bool buttonReading = (digitalRead(BUTTON_PIN) == LOW) ? LOW : HIGH;
-
     if (buttonReading != buttonLastReading) {
         buttonLastChangeMs = millis();
         buttonLastReading = buttonReading;
@@ -189,31 +237,16 @@ void loop()
     if ((millis() - buttonLastChangeMs) >= buttonDebounceMs &&
         buttonReading != buttonStableState) {
         buttonStableState = buttonReading;
-
         if (buttonStableState == LOW) {
-            Serial.println("Button pressed: sending Wake-on-LAN packet...");
+            Serial.println("Button pressed: sending Wake-on-LAN");
+            ledIsOn = false;
+            digitalWrite(LED_PIN, LOW);
             sendWakeOnLan();
+            ledIsOn = true;
+            digitalWrite(LED_PIN, HIGH);
         }
     }
 
-    while (Serial.available() > 0) {
-        char c = static_cast<char>(Serial.read());
-
-        // Ignore line endings/spaces some terminals send with Enter.
-        if (c == '\r' || c == '\n' || c == ' ' || c == '\t') {
-            continue;
-        }
-
-        Serial.print("RX: '");
-        Serial.print(c);
-        Serial.println("'");
-
-        if (c == 'w' || c == 'W') {
-            sendWakeOnLan();
-        } else {
-            Serial.println("Unknown command. Use 'w' to send WoL.");
-        }
-    }
-
+    digitalWrite(LED_PIN, ledIsOn ? HIGH : LOW);
     delay(10);
 }
