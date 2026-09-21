@@ -83,12 +83,20 @@ void connectWiFi()
     WiFi.begin(wifiSsid, wifiPassword);
 
     Serial.print("Connecting to Wi-Fi");
-    while (WiFi.status() != WL_CONNECTED) {
+    const unsigned long timeoutMs = 15000;
+    const unsigned long startedMs = millis();
+
+    while (WiFi.status() != WL_CONNECTED && (millis() - startedMs) < timeoutMs) {
         delay(500);
         Serial.print(".");
     }
-    Serial.println("\nWi-Fi connected");
-    Serial.println(WiFi.localIP());
+
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("\nWi-Fi connected");
+        Serial.println(WiFi.localIP());
+    } else {
+        Serial.println("\nWi-Fi connection timeout after 15 seconds.");
+    }
 }
 
 int sendWakeOnLan()
