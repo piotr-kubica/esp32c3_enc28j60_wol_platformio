@@ -15,9 +15,17 @@
 // BOOT button on ESP32-C3-DevKitM-1 is GPIO9. This button is active LOW.
 #define BUTTON_PIN 9
 
-// Fill these with your 2.4 GHz Wi-Fi credentials (used for the HTTP trigger endpoint).
-const char *WIFI_SSID = "YOUR_WIFI_SSID";
-const char *WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+// Wi-Fi credentials are injected from platformio.ini / wifi_secrets.ini build flags.
+#ifndef WIFI_SSID
+#define WIFI_SSID ""
+#endif
+
+#ifndef WIFI_PASSWORD
+#define WIFI_PASSWORD ""
+#endif
+
+const char *wifiSsid = WIFI_SSID;
+const char *wifiPassword = WIFI_PASSWORD;
 
 // Target Z97 Ethernet MAC.
 // TODO: Replace with the MAC address of your server.
@@ -67,8 +75,13 @@ void handleOptions()
 
 void connectWiFi()
 {
+    if (strlen(wifiSsid) == 0 || strlen(wifiPassword) == 0) {
+        Serial.println("Wi-Fi credentials are empty. Set [wifi] ssid/password in wifi_secrets.ini.");
+        return;
+    }
+
     WiFi.mode(WIFI_STA);
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    WiFi.begin(wifiSsid, wifiPassword);
 
     Serial.print("Connecting to Wi-Fi");
     unsigned long startedMs = millis();
@@ -79,7 +92,7 @@ void connectWiFi()
     Serial.println();
 
     if (WiFi.status() == WL_CONNECTED) {
-        Serial.print("Wi-Fi connected. API IP: ");
+        Serial.print("Wi-Fi connected. IP address: ");
         Serial.println(WiFi.localIP());
     } else {
         Serial.println("Wi-Fi connection failed (timeout). API unavailable until connected.");

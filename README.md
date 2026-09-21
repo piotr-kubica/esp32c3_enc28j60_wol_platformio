@@ -32,7 +32,12 @@ for the WoL packet while the machine is powered off.
 
 ## Before uploading
 
-Edit `src/main.cpp` and replace:
+1. Copy `wifi_secrets.example.ini` to `wifi_secrets.ini`.
+2. Put your 2.4 GHz Wi-Fi SSID and password in `wifi_secrets.ini`.
+
+The `wifi_secrets.ini` file is gitignored, so credentials are not committed.
+
+Also edit `src/main.cpp` and replace:
 
     AA:BB:CC:DD:EE:FF
 
@@ -43,6 +48,8 @@ On OMV/Linux, find it with:
     ip link
 
 Look for the MAC (`link/ether`) of the Ethernet interface.
+
+On successful Wi-Fi connection, Serial Monitor prints the assigned Wi-Fi IP address.
 
 ## BIOS
 
