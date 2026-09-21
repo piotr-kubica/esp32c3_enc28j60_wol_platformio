@@ -30,7 +30,7 @@ const char *wifiPassword = WIFI_PASSWORD;
 // Target Z97 Ethernet MAC.
 // TODO: Replace with the MAC address of your server.
 byte targetMac[] = {
-    0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF
+    0x78, 0x24, 0xAF, 0x45, 0x32, 0x48
 };
 
 // Locally administered MAC for the ENC28J60.
@@ -82,21 +82,8 @@ void connectWiFi()
     WiFi.mode(WIFI_STA);
     WiFi.begin(wifiSsid, wifiPassword);
 
-    Serial.print("Connecting to Wi-Fi");
-    const unsigned long timeoutMs = 15000;
-    const unsigned long startedMs = millis();
-
-    while (WiFi.status() != WL_CONNECTED && (millis() - startedMs) < timeoutMs) {
-        delay(500);
-        Serial.print(".");
-    }
-
-    if (WiFi.status() == WL_CONNECTED) {
-        Serial.println("\nWi-Fi connected");
-        Serial.println(WiFi.localIP());
-    } else {
-        Serial.println("\nWi-Fi connection timeout after 15 seconds.");
-    }
+    // Non-blocking: start connection attempt and return immediately.
+    Serial.println("Wi-Fi connect started (non-blocking).");
 }
 
 int sendWakeOnLan()
@@ -168,8 +155,7 @@ void setup()
     SPI.begin(ETH_SCK, ETH_MISO, ETH_MOSI, ETH_CS);
     Ethernet.init(ETH_CS);
     Serial.println("Starting Ethernet with static IP...");
-    Ethernet.begin(localMac, localIp, IPAddress(192, 168, 50, 1),
-                   IPAddress(192, 168, 50, 1), subnet);
+    Ethernet.begin(localMac, localIp, IPAddress(192, 168, 50, 1), IPAddress(192, 168, 50, 1), subnet);
 
     delay(500);
     Serial.print("ESP32 IP: ");
@@ -233,7 +219,13 @@ void loop()
 {
     if (millis() - lastHeartbeatMs >= 3000) {
         lastHeartbeatMs = millis();
-        Serial.println("Alive: waiting for HTTP POST /switch");
+        Serial.print("Alive. Wi-Fi: ");
+        if (WiFi.status() == WL_CONNECTED) {
+            Serial.print("CONNECTED, IP=");
+            Serial.println(WiFi.localIP());
+        } else {
+            Serial.println("NOT CONNECTED");
+        }
     }
 
     bool buttonReading = (digitalRead(BUTTON_PIN) == LOW) ? LOW : HIGH;
