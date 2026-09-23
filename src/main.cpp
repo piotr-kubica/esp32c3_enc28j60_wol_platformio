@@ -13,6 +13,7 @@
 #define ETH_CS    7
 
 #define LED_PIN 1
+#define WIFI_LED_PIN 10
 #define BUTTON_PIN 9
 
 // Wi-Fi credentials are injected from platformio.ini / wifi_secrets.ini build flags.
@@ -60,6 +61,75 @@ unsigned long restartAtMs = 0;
 const unsigned long restartDelayMs = 3000;
 
 IPAddress subnetBroadcast(192, 168, 50, 255);
+
+void updateWifiStatusLed(bool wifiConnected)
+{
+    static bool initialized = false;
+    static bool lastWifiConnected = false;
+    static uint8_t disconnectedPhase = 0;
+    static bool ledState = LOW;
+    static unsigned long phaseStartMs = 0;
+
+    const unsigned long disconnectedDurationsMs[] = {
+        120,  // pulse 1 ON
+        120,  // pulse 1 OFF
+        120,  // pulse 2 ON
+        1000  // short pause (OFF)
+    };
+    const bool disconnectedStates[] = {HIGH, LOW, HIGH, LOW};
+
+    const unsigned long connectedOnMs = 1000;
+    const unsigned long connectedOffMs = 2000;
+
+    unsigned long now = millis();
+
+    if (!initialized) {
+        initialized = true;
+        lastWifiConnected = wifiConnected;
+        phaseStartMs = now;
+        if (wifiConnected) {
+            ledState = HIGH;
+            digitalWrite(WIFI_LED_PIN, ledState);
+        } else {
+            disconnectedPhase = 0;
+            ledState = disconnectedStates[disconnectedPhase];
+            digitalWrite(WIFI_LED_PIN, ledState);
+        }
+        return;
+    }
+
+    if (wifiConnected != lastWifiConnected) {
+        lastWifiConnected = wifiConnected;
+        phaseStartMs = now;
+        if (wifiConnected) {
+            ledState = HIGH;
+            digitalWrite(WIFI_LED_PIN, ledState);
+        } else {
+            disconnectedPhase = 0;
+            ledState = disconnectedStates[disconnectedPhase];
+            digitalWrite(WIFI_LED_PIN, ledState);
+        }
+        return;
+    }
+
+    if (wifiConnected) {
+        const unsigned long intervalMs = ledState ? connectedOnMs : connectedOffMs;
+        if (now - phaseStartMs >= intervalMs) {
+            phaseStartMs = now;
+            ledState = !ledState;
+            digitalWrite(WIFI_LED_PIN, ledState);
+        }
+        return;
+    }
+
+    const unsigned long intervalMs = disconnectedDurationsMs[disconnectedPhase];
+    if (now - phaseStartMs >= intervalMs) {
+        phaseStartMs = now;
+        disconnectedPhase = (disconnectedPhase + 1) % 4;
+        ledState = disconnectedStates[disconnectedPhase];
+        digitalWrite(WIFI_LED_PIN, ledState);
+    }
+}
 
 void armRestartAfterWol()
 {
@@ -160,6 +230,8 @@ void setup()
 
     pinMode(LED_PIN, OUTPUT);
     digitalWrite(LED_PIN, LOW);
+    pinMode(WIFI_LED_PIN, OUTPUT);
+    digitalWrite(WIFI_LED_PIN, LOW);
     pinMode(BUTTON_PIN, INPUT_PULLUP);
 
     SPI.begin(ETH_SCK, ETH_MISO, ETH_MOSI, ETH_CS);
@@ -230,10 +302,12 @@ void setup()
 
 void loop()
 {
+    const bool wifiConnected = (WiFi.status() == WL_CONNECTED);
+
     if (millis() - lastHeartbeatMs >= 3000) {
         lastHeartbeatMs = millis();
         Serial.print("Alive. Wi-Fi: ");
-        if (WiFi.status() == WL_CONNECTED) {
+        if (wifiConnected) {
             Serial.print("CONNECTED, IP=");
             Serial.println(WiFi.localIP());
         } else {
@@ -268,6 +342,8 @@ void loop()
         delay(50);
         ESP.restart();
     }
+
+    updateWifiStatusLed(wifiConnected);
 
     digitalWrite(LED_PIN, ledIsOn ? HIGH : LOW);
     delay(10);
