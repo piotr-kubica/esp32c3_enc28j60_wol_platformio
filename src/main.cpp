@@ -55,8 +55,18 @@ const unsigned long buttonDebounceMs = 40;
 bool buttonStableState = HIGH;
 bool buttonLastReading = HIGH;
 unsigned long buttonLastChangeMs = 0;
+bool restartArmed = false;
+unsigned long restartAtMs = 0;
+const unsigned long restartDelayMs = 3000;
 
 IPAddress subnetBroadcast(192, 168, 50, 255);
+
+void armRestartAfterWol()
+{
+    restartArmed = true;
+    restartAtMs = millis() + restartDelayMs;
+    Serial.println("ESP restart scheduled in 3 seconds...");
+}
 
 void printMac(const byte *mac)
 {
@@ -192,6 +202,9 @@ void setup()
 
         Serial.println("HTTP trigger: /switch -> sending Wake-on-LAN");
         const int sentCount = sendWakeOnLan();
+        if (sentCount > 0) {
+            armRestartAfterWol();
+        }
 
         delay(duration);
         ledIsOn = true;
@@ -241,10 +254,19 @@ void loop()
             Serial.println("Button pressed: sending Wake-on-LAN");
             ledIsOn = false;
             digitalWrite(LED_PIN, LOW);
-            sendWakeOnLan();
+            const int sentCount = sendWakeOnLan();
+            if (sentCount > 0) {
+                armRestartAfterWol();
+            }
             ledIsOn = true;
             digitalWrite(LED_PIN, HIGH);
         }
+    }
+
+    if (restartArmed && static_cast<long>(millis() - restartAtMs) >= 0) {
+        Serial.println("Restarting ESP32 now.");
+        delay(50);
+        ESP.restart();
     }
 
     digitalWrite(LED_PIN, ledIsOn ? HIGH : LOW);
