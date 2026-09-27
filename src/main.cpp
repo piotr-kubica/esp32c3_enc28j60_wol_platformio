@@ -13,8 +13,8 @@
 #define ETH_CS    7
 
 #define LED_PIN 1
-#define WIFI_LED_PIN 10
-#define BUTTON_PIN 9
+#define WIFI_LED_PIN 9
+#define BUTTON_PIN 10
 
 // Wi-Fi credentials are injected from platformio.ini / wifi_secrets.ini build flags.
 #ifndef WIFI_SSID
@@ -62,13 +62,15 @@ const unsigned long restartDelayMs = 3000;
 
 IPAddress subnetBroadcast(192, 168, 50, 255);
 
-void updateWifiStatusLed(bool wifiConnected)
+void updateWifiStatusLed(wl_status_t wifiStatus)
 {
     static bool initialized = false;
-    static bool lastWifiConnected = false;
+    static bool lastIsAlertPattern = false;
     static uint8_t disconnectedPhase = 0;
     static bool ledState = LOW;
     static unsigned long phaseStartMs = 0;
+
+    const bool isAlertPattern = (wifiStatus != WL_CONNECTED);
 
     const unsigned long disconnectedDurationsMs[] = {
         120,  // pulse 1 ON
@@ -78,42 +80,40 @@ void updateWifiStatusLed(bool wifiConnected)
     };
     const bool disconnectedStates[] = {HIGH, LOW, HIGH, LOW};
 
-    const unsigned long connectedOnMs = 1000;
-    const unsigned long connectedOffMs = 2000;
+    const unsigned long defaultBlinkOnMs = 500;
+    const unsigned long defaultBlinkOffMs = 1500;
 
     unsigned long now = millis();
 
     if (!initialized) {
         initialized = true;
-        lastWifiConnected = wifiConnected;
+        lastIsAlertPattern = isAlertPattern;
         phaseStartMs = now;
-        if (wifiConnected) {
-            ledState = HIGH;
-            digitalWrite(WIFI_LED_PIN, ledState);
-        } else {
+        if (isAlertPattern) {
             disconnectedPhase = 0;
             ledState = disconnectedStates[disconnectedPhase];
-            digitalWrite(WIFI_LED_PIN, ledState);
+        } else {
+            ledState = HIGH;
         }
+        digitalWrite(WIFI_LED_PIN, ledState);
         return;
     }
 
-    if (wifiConnected != lastWifiConnected) {
-        lastWifiConnected = wifiConnected;
+    if (isAlertPattern != lastIsAlertPattern) {
+        lastIsAlertPattern = isAlertPattern;
         phaseStartMs = now;
-        if (wifiConnected) {
-            ledState = HIGH;
-            digitalWrite(WIFI_LED_PIN, ledState);
-        } else {
+        if (isAlertPattern) {
             disconnectedPhase = 0;
             ledState = disconnectedStates[disconnectedPhase];
-            digitalWrite(WIFI_LED_PIN, ledState);
+        } else {
+            ledState = HIGH;
         }
+        digitalWrite(WIFI_LED_PIN, ledState);
         return;
     }
 
-    if (wifiConnected) {
-        const unsigned long intervalMs = ledState ? connectedOnMs : connectedOffMs;
+    if (!isAlertPattern) {
+        const unsigned long intervalMs = ledState ? defaultBlinkOnMs : defaultBlinkOffMs;
         if (now - phaseStartMs >= intervalMs) {
             phaseStartMs = now;
             ledState = !ledState;
@@ -302,7 +302,8 @@ void setup()
 
 void loop()
 {
-    const bool wifiConnected = (WiFi.status() == WL_CONNECTED);
+    const wl_status_t wifiStatus = WiFi.status();
+    const bool wifiConnected = (wifiStatus == WL_CONNECTED);
 
     if (millis() - lastHeartbeatMs >= 3000) {
         lastHeartbeatMs = millis();
@@ -343,7 +344,7 @@ void loop()
         ESP.restart();
     }
 
-    updateWifiStatusLed(wifiConnected);
+    updateWifiStatusLed(wifiStatus);
 
     digitalWrite(LED_PIN, ledIsOn ? HIGH : LOW);
     delay(10);
