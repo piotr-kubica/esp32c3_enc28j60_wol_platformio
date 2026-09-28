@@ -73,15 +73,15 @@ void updateWifiStatusLed(wl_status_t wifiStatus)
     const bool isAlertPattern = (wifiStatus != WL_CONNECTED);
 
     const unsigned long disconnectedDurationsMs[] = {
-        120,  // pulse 1 ON
-        120,  // pulse 1 OFF
-        120,  // pulse 2 ON
-        1000  // short pause (OFF)
+        220,  // pulse 1 ON
+        220,  // pulse 1 OFF
+        220,  // pulse 2 ON
+        1200  // short pause (OFF)
     };
     const bool disconnectedStates[] = {HIGH, LOW, HIGH, LOW};
 
-    const unsigned long defaultBlinkOnMs = 500;
-    const unsigned long defaultBlinkOffMs = 1500;
+    const unsigned long defaultBlinkOnMs = 800;
+    const unsigned long defaultBlinkOffMs = 2500;
 
     unsigned long now = millis();
 
