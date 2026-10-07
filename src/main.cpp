@@ -80,8 +80,8 @@ void updateWifiStatusLed(wl_status_t wifiStatus)
     };
     const bool disconnectedStates[] = {HIGH, LOW, HIGH, LOW};
 
-    const unsigned long defaultBlinkOnMs = 800;
-    const unsigned long defaultBlinkOffMs = 2500;
+    const unsigned long defaultBlinkOnMs = 200;
+    const unsigned long defaultBlinkOffMs = 8000;
 
     unsigned long now = millis();
 
